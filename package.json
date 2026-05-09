@@ -9,7 +9,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.52.0",
-    "dotenv": "^16.0.0"
+    "@aws-sdk/client-lambda": "^3.1045.0",
+    "@slack/web-api": "^7.15.2",
+    "dotenv": "^16.0.0",
+    "googleapis": "^171.4.0"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

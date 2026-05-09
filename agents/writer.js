@@ -1,4 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { WebClient } from "@slack/web-api";
+import { google } from "googleapis";
+import { readFileSync } from "fs";
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export class WriterAgent {
@@ -25,43 +29,68 @@ No markdown fences around the JSON.`,
   async dispatch(deliverables, { recipientEmail, slackChannel }) {
     const results = { email: false, slack: false };
 
-    if (recipientEmail) {
+    // --- Slack ---
+    if (process.env.SLACK_BOT_TOKEN) {
       try {
-        await client.messages.create({
-          model: "claude-sonnet-4-5",
-          max_tokens: 256,
-          mcp_servers: [{
-            type: "url",
-            url: "https://gmailmcp.googleapis.com/mcp/v1",
-            name: "gmail-mcp"
-          }],
-          system: "Use Gmail MCP to create an email draft. Confirm when done.",
-          messages: [{ role: "user", content:
-
-            `Draft to ${recipientEmail}\nSubject: ${deliverables.email.subject}\n${deliverables.email.body}`
-          }],
-        });
-        results.email = true;
-      } catch (e) { console.warn("Gmail MCP:", e.message); }
-    }
-
-    if (slackChannel) {
-      try {
-        await client.messages.create({
-          model: "claude-sonnet-4-5",
-          max_tokens: 256,
-          mcp_servers: [{
-            type: "url",
-            url: "https://mcp.slack.com/mcp",
-            name: "slack-mcp"
-          }],
-          system: "Post to Slack using the MCP. Confirm when done.",
-          messages: [{ role: "user", content:
-            `Post to ${slackChannel}:\n${deliverables.slack}`
-          }],
+        console.log(`[Writer] Posting to Slack ${slackChannel || "#research"}...`);
+        const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+        await slack.chat.postMessage({
+          channel: slackChannel || "#research",
+          text: deliverables.slack,
         });
         results.slack = true;
-      } catch (e) { console.warn("Slack MCP:", e.message); }
+        console.log("[Writer] Slack message sent");
+      } catch (e) {
+        console.warn("[Writer] Slack error:", e.message);
+      }
+    } else {
+      console.log("[Writer] No SLACK_BOT_TOKEN — skipping Slack");
+    }
+
+    // --- Gmail ---
+    if (recipientEmail) {
+      try {
+        console.log(`[Writer] Creating Gmail draft to ${recipientEmail}...`);
+
+        const creds = JSON.parse(readFileSync("./credentials.json"));
+        const { client_id, client_secret } = creds.installed;
+
+        const tokenData = JSON.parse(readFileSync("./gmail-token.json"));
+
+        const oauth2Client = new google.auth.OAuth2(
+          client_id,
+          client_secret
+        );
+        oauth2Client.setCredentials(tokenData);
+
+        const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+        const message = [
+          `To: ${recipientEmail}`,
+          `Subject: ${deliverables.email?.subject}`,
+          `Content-Type: text/plain; charset=utf-8`,
+          ``,
+          `${deliverables.email?.body}`,
+        ].join("\n");
+
+        const encoded = Buffer.from(message)
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+
+        await gmail.users.drafts.create({
+          userId: "me",
+          requestBody: { message: { raw: encoded } },
+        });
+
+        results.email = true;
+        console.log("[Writer] Gmail draft created");
+      } catch (e) {
+        console.warn("[Writer] Gmail error:", e.message);
+      }
+    } else {
+      console.log("[Writer] No recipientEmail — skipping Gmail");
     }
 
     return results;
