@@ -34,33 +34,13 @@ API Gateway (HTTP API)
      │
      ▼
 Lambda — handler.js
-  ├── Returns 202 immediately (beats 29s API Gateway timeout)
-  └── Self-invokes asynchronously to run full pipeline
-           │
-           ├── OrchestratorAgent  (claude-sonnet-4-5)
-           ├── ResearchAgent      (claude-sonnet-4-5 + web_search tool)
-           └── WriterAgent        (claude-sonnet-4-5 + Gmail + Slack)
+     │
+     ├── OrchestratorAgent  (claude-sonnet-4-5)
+     ├── ResearchAgent      (claude-sonnet-4-5 + web_search tool)
+     └── WriterAgent        (claude-sonnet-4-5 + Gmail API + Slack API)
 
 DynamoDB — stores run state
 CloudWatch — logs every agent step
-```
-
-## Project structure
-
-```
-multi-agent-research/
-├── handler.js              # Lambda entry point, async self-invocation
-├── agents/
-│   ├── orchestrator.js     # Plans research queries and report structure
-│   ├── research.js         # Web search and fact extraction
-│   └── writer.js           # Synthesizes deliverables, dispatches via Gmail and Slack
-├── infra/
-│   └── main.tf             # Terraform: Lambda, API Gateway, DynamoDB, IAM
-├── test/
-│   └── local.js            # Run the full pipeline locally without AWS
-├── .env.example            # Environment variable reference
-└── package.json
-└── package-lock.json
 ```
 
 ## Prerequisites
@@ -97,26 +77,35 @@ GMAIL_CLIENT_SECRET=your-google-client-secret
 GMAIL_REFRESH_TOKEN=your-refresh-token
 ```
 
-### 3. Set up Gmail credentials
+### 3. Set up Gmail
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com)
 2. Create a project → enable **Gmail API**
-3. Create **OAuth 2.0 credentials** (Desktop app) → download as `credentials.json`
-4. Run the auth flow to get your refresh token:
+3. Go to **Credentials → Create Credentials → OAuth 2.0 Client ID** → Desktop app → download as `credentials.json`
+4. Add yourself as a test user under **OAuth consent screen → Test users**
+5. Run the auth flow once to get your refresh token:
 
 ```bash
 node get-gmail-token.js
 ```
 
-Follow the prompts — it saves your token to `gmail-token.json` automatically.
+Follow the prompts — open the URL in your browser, authorize, paste the full redirect URL back into the terminal. It prints your three credentials:
+
+```
+GMAIL_CLIENT_ID=...
+GMAIL_CLIENT_SECRET=...
+GMAIL_REFRESH_TOKEN=...
+```
+
+Add all three to your `.env` file.
 
 ### 4. Set up Slack
 
 1. Go to [api.slack.com/apps](https://api.slack.com/apps)
 2. Create New App → From scratch
 3. OAuth & Permissions → Bot Token Scopes → add `chat:write`
-4. Install to Workspace → copy the `xoxb-...` token
-5. Invite the bot to your channel: `/invite @your-app-name`
+4. Install to Workspace → copy the `xoxb-...` token into `.env`
+5. Invite the bot to your channel in Slack: `/invite @your-app-name`
 
 ### 5. Test locally
 
@@ -155,7 +144,29 @@ Terraform outputs your live API URL:
 api_url = "https://abc123.execute-api.us-east-1.amazonaws.com/prod/research"
 ```
 
-### Call the API
+### Add Gmail credentials to Lambda
+
+After deploying, add your Gmail credentials as Lambda environment variables:
+
+```bash
+aws lambda update-function-configuration \
+  --function-name multi-agent-research \
+  --environment "Variables={ANTHROPIC_API_KEY=your-key,SLACK_BOT_TOKEN=your-token,DYNAMODB_TABLE=multi-agent-research-state,GMAIL_CLIENT_ID=your-client-id,GMAIL_CLIENT_SECRET=your-secret,GMAIL_REFRESH_TOKEN=your-refresh-token}"
+```
+
+### Invoke the pipeline
+
+Via AWS CLI (recommended — bypasses API Gateway timeout):
+
+```bash
+aws lambda invoke \
+  --function-name multi-agent-research \
+  --payload '{"httpMethod":"POST","body":"{\"topic\":\"Your topic\",\"recipientEmail\":\"you@example.com\",\"slackChannel\":\"#your-channel\"}"}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json && cat response.json
+```
+
+Via curl:
 
 ```bash
 curl -X POST https://<your-url>/research \
@@ -166,8 +177,6 @@ curl -X POST https://<your-url>/research \
     "slackChannel": "#research"
   }'
 ```
-
-Returns `202 Accepted` immediately. Results appear in your Gmail drafts and Slack channel within 60–90 seconds.
 
 ### View logs
 
@@ -191,10 +200,15 @@ aws logs tail /aws/lambda/multi-agent-research --follow
 | `SLACK_BOT_TOKEN` | For Slack | Bot OAuth token (`xoxb-...`) |
 | `GMAIL_CLIENT_ID` | For Gmail | Google OAuth client ID |
 | `GMAIL_CLIENT_SECRET` | For Gmail | Google OAuth client secret |
-| `GMAIL_REFRESH_TOKEN` | For Gmail | OAuth refresh token |
+| `GMAIL_REFRESH_TOKEN` | For Gmail | OAuth refresh token from auth flow |
 
 ## Security notes
 
 - Never commit `.env`, `credentials.json`, or `gmail-token.json` — all are in `.gitignore`
 - Gmail OAuth creates **drafts only** — nothing is sent without your review
-- Store production secrets in AWS Secrets Manager or Lambda environment variables, not in code
+- Gmail credentials are stored as Lambda environment variables in production — never hardcoded
+- Rotate your `GMAIL_REFRESH_TOKEN` if it stops working — tokens expire after 7 days of inactivity
+
+## License
+
+MIT
