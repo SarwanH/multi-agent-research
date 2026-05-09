@@ -163,6 +163,7 @@ aws lambda invoke \
   --function-name multi-agent-research \
   --payload '{"httpMethod":"POST","body":"{\"topic\":\"Your topic\",\"recipientEmail\":\"you@example.com\",\"slackChannel\":\"#your-channel\"}"}' \
   --cli-binary-format raw-in-base64-out \
+  --cli-read-timeout 300 \   
   response.json && cat response.json
 ```
 
