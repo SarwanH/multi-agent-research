@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { WebClient } from "@slack/web-api";
 import { google } from "googleapis";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -52,16 +52,25 @@ No markdown fences around the JSON.`,
       try {
         console.log(`[Writer] Creating Gmail draft to ${recipientEmail}...`);
 
-        const creds = JSON.parse(readFileSync("./credentials.json"));
-        const { client_id, client_secret } = creds.installed;
+        // Use env vars on Lambda, fall back to local files for local testing
+        let clientId, clientSecret, credentials;
 
-        const tokenData = JSON.parse(readFileSync("./gmail-token.json"));
+        if (process.env.GMAIL_CLIENT_ID) {
+          clientId     = process.env.GMAIL_CLIENT_ID;
+          clientSecret = process.env.GMAIL_CLIENT_SECRET;
+          credentials  = { refresh_token: process.env.GMAIL_REFRESH_TOKEN };
+        } else if (existsSync("./credentials.json")) {
+          const creds  = JSON.parse(readFileSync("./credentials.json"));
+          clientId     = creds.installed.client_id;
+          clientSecret = creds.installed.client_secret;
+          credentials  = JSON.parse(readFileSync("./gmail-token.json"));
+        } else {
+          console.log("[Writer] No Gmail credentials — skipping");
+          return results;
+        }
 
-        const oauth2Client = new google.auth.OAuth2(
-          client_id,
-          client_secret
-        );
-        oauth2Client.setCredentials(tokenData);
+        const oauth2Client = new google.auth.OAuth2(clientId, clientSecret);
+        oauth2Client.setCredentials(credentials);
 
         const gmail = google.gmail({ version: "v1", auth: oauth2Client });
 
