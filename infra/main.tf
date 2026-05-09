@@ -10,6 +10,10 @@ provider "aws" {
 
 variable "aws_region"        { default = "us-east-1" }
 variable "anthropic_api_key" { sensitive = true }
+variable "slack_bot_token" { 
+    sensitive = true 
+    default = "" 
+}
 variable "function_name"     { default = "multi-agent-research" }
 
 # --- Lambda execution role ---
