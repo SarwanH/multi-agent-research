@@ -166,18 +166,6 @@ aws lambda invoke \
   response.json && cat response.json
 ```
 
-Via curl:
-
-```bash
-curl -X POST https://<your-url>/research \
-  -H "Content-Type: application/json" \
-  -d '{
-    "topic": "AI agents in software engineering",
-    "recipientEmail": "you@example.com",
-    "slackChannel": "#research"
-  }'
-```
-
 ### View logs
 
 ```bash
