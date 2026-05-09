@@ -9,3 +9,4 @@ infra/.terraform.lock.hcl
 credentials.json
 gmail-token.json
 get-gmail-token.js
+response.json
